@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 900 170" width="900" height="170" role="img" aria-label="Assistente animado com falas que se alternam">
+<g>
+  <animateTransform attributeName="transform" type="translate" values="92 74;92 66;92 74" dur="3.2s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".45 0 .55 1;.45 0 .55 1"/>
+  <g transform="scale(.62)">
+  <defs>
+    <linearGradient id="mbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d6e3ec"/>
+    </linearGradient>
+    <clipPath id="mclip"><ellipse cx="0" cy="40" rx="58" ry="70"/></clipPath>
+  </defs>
+  <ellipse cx="0" cy="118" rx="46" ry="8" fill="#000" opacity=".33">
+    <animate attributeName="rx" values="46;38;46" dur="3.2s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".45 0 .55 1;.45 0 .55 1"/>
+    <animate attributeName="opacity" values=".33;.2;.33" dur="3.2s" repeatCount="indefinite"/>
+  </ellipse>
+  <g>
+    <ellipse cx="-24" cy="102" rx="20" ry="16" fill="url(#mbg)" stroke="#c4d3de" stroke-width="1.5"/>
+    <ellipse cx="24" cy="102" rx="20" ry="16" fill="url(#mbg)" stroke="#c4d3de" stroke-width="1.5"/>
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="0 -56 8;5 -56 8;0 -56 8" dur="3.2s" repeatCount="indefinite"/>
+      <ellipse cx="-66" cy="38" rx="16" ry="38" transform="rotate(10 -66 38)" fill="url(#mbg)" stroke="#c4d3de" stroke-width="1.5"/>
+    </g>
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="0 56 8;-5 56 8;0 56 8" dur="3.2s" repeatCount="indefinite"/>
+      <ellipse cx="66" cy="38" rx="16" ry="38" transform="rotate(-10 66 38)" fill="url(#mbg)" stroke="#c4d3de" stroke-width="1.5"/>
+    </g>
+    <ellipse cx="0" cy="40" rx="58" ry="70" fill="url(#mbg)" stroke="#c4d3de" stroke-width="1.5"/>
+    <g transform="translate(0 34)">
+      <animateTransform attributeName="transform" type="translate" values="0 34;0 34" dur="1s" repeatCount="indefinite"/>
+      <g>
+        <animateTransform attributeName="transform" type="scale" values="1;1.16;1;1.1;1" keyTimes="0;.12;.25;.37;1" dur="1.6s" repeatCount="indefinite"/>
+        <rect x="-4.5" y="-13" width="9" height="26" rx="2.5" fill="#CA1F26"/>
+        <rect x="-13" y="-4.5" width="26" height="9" rx="2.5" fill="#CA1F26"/>
+      </g>
+    </g>
+    <ellipse cx="0" cy="-38" rx="44" ry="34" fill="url(#mbg)" stroke="#c4d3de" stroke-width="1.5"/>
+    <line x1="-17" y1="-38" x2="17" y2="-38" stroke="#1a1a22" stroke-width="2.2" stroke-linecap="round"/>
+    <ellipse cx="-17" cy="-38" rx="5.6" ry="5.6" fill="#1a1a22">
+      <animate attributeName="ry" values="5.6;5.6;.6;5.6;5.6" keyTimes="0;.9;.935;.97;1" dur="5s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="17" cy="-38" rx="5.6" ry="5.6" fill="#1a1a22">
+      <animate attributeName="ry" values="5.6;5.6;.6;5.6;5.6" keyTimes="0;.9;.935;.97;1" dur="5s" repeatCount="indefinite"/>
+    </ellipse>
+  </g></g>
+</g>
+<path d="M176 60 L196 48 L196 74 Z" fill="#F6FFFF" stroke="#CA1F26" stroke-width="2" stroke-linejoin="round"/>
+<rect x="190" y="20" width="690" height="104" rx="18" fill="#F6FFFF" stroke="#CA1F26" stroke-width="2.5"/>
+<rect x="191.5" y="48.5" width="4" height="26" fill="#F6FFFF"/>
+<g opacity="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#1b1030">
+    <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1" dur="18s" begin="0.0s" repeatCount="indefinite"/>
+    <text x="206" y="62" font-weight="700">Olá! Sou o assistente pessoal de montagem.</text><text x="206" y="92">Vim cuidar do seu progresso.</text></g>
+<g opacity="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#1b1030">
+    <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1" dur="18s" begin="4.5s" repeatCount="indefinite"/>
+    <text x="206" y="62" font-weight="700">Em uma escala de 1 a 10, quanto dói</text><text x="206" y="92">refazer a mesma conta em duas planilhas?</text></g>
+<g opacity="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#1b1030">
+    <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1" dur="18s" begin="9.0s" repeatCount="indefinite"/>
+    <text x="206" y="62" font-weight="700">Detectei etapas sem tempo ideal.</text><text x="206" y="92">Recomendo preenchê-las para eu calcular os pesos.</text></g>
+<g opacity="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#1b1030">
+    <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.03;.22;.25;1" dur="18s" begin="13.5s" repeatCount="indefinite"/>
+    <text x="206" y="62" font-weight="700">Progresso salvo na planilha.</text><text x="206" y="92">Você está satisfeito com o seu cuidado?</text></g>
+</svg>
