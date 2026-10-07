@@ -1,0 +1,4 @@
+# Dependências do painel (instale com: python -m pip install -r requirements.txt)
+flask>=3.0        # servidor web
+openpyxl>=3.1     # leitura do .xlsx quando o Excel está fechado
+pywin32>=306      # controle do Excel pelo COM do Windows (só funciona no Windows)

@@ -1,0 +1,741 @@
+<!doctype html>
+<!--
+  PAINEL DE MONTAGEM SoBot  -  a "tela" do sistema (um arquivo só: HTML + CSS + JavaScript).
+
+  Como funciona:
+    * O servidor (server.py) entrega esta página e uma API: GET /api/data e POST /api/set.
+    * O JavaScript lá embaixo pergunta os dados à API a cada 2 segundos e redesenha o que mudou.
+    * Quando você sai de um campo amarelo (Tab/Enter), o valor é enviado à API, que grava na
+      planilha Excel; o Excel recalcula as fórmulas e a tela mostra o resultado novo.
+    * NENHUMA conta é feita aqui: progresso, pesos, tempos e dias úteis vêm das fórmulas da planilha.
+
+  Organização: <head> (biblioteca de gráficos + estilos) -> <body> (4 telas) -> <script> (lógica).
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel Montagem SoBot</title>
+<!-- ECharts: biblioteca de gráficos (precisa de internet na primeira abertura). -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+/* ===== Tema =====
+   Todas as cores são variáveis (--nome) definidas aqui. O tema claro é o padrão; o escuro é
+   ativado pelo sistema (prefers-color-scheme) ou pelo botão da lua (atributo data-theme). */
+:root{
+  color-scheme: light;
+  --page:#f3f2f1; --surface:#ffffff; --surface-2:#f6f5f2; --hair:#e6e4df; --hair-2:#d6d4cf;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#8a8984;
+  --accent:#2a78d6; --accent-soft:#cde2fb; --orange:#eb6834; --orange-soft:#fbd9c9; --aqua:#1baf7a; --violet:#4a3aa7;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --idle:#c9c7c1;
+  --rail:#1b1f2a; --rail-ink:#c8ccd6;
+  --shadow:0 1px 2px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04);
+  --input:#fff9db; --input-ink:#1c5cab;
+}
+/* Tema escuro automático, quando o computador está no modo escuro (e o usuário não forçou o claro). */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#222220; --hair:#2c2c2a; --hair-2:#3a3a37;
+    --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8f8e86;
+    --accent:#3987e5; --accent-soft:#1f3a5c; --orange:#d95926; --orange-soft:#4a2a1c; --aqua:#199e70; --violet:#9085e9;
+    --idle:#4a4a46; --rail:#111214; --input:#2a2716; --input-ink:#86b6ef; --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+}
+/* Tema escuro escolhido pelo botão da lua (guardado no navegador). */
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --surface-2:#222220; --hair:#2c2c2a; --hair-2:#3a3a37;
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#8f8e86;
+  --accent:#3987e5; --accent-soft:#1f3a5c; --orange:#d95926; --orange-soft:#4a2a1c; --aqua:#199e70; --violet:#9085e9;
+  --idle:#4a4a46; --rail:#111214; --input:#2a2716; --input-ink:#86b6ef; --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+/* ===== Base ===== */
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--page);color:var(--ink);font:14px/1.4 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;display:flex;min-height:100vh}
+button{font:inherit;cursor:pointer}
+a{color:var(--accent)}
+/* barra lateral */
+.rail{width:64px;background:var(--rail);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:0;height:100vh;flex:none}
+.logo{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#f2c811,#e8a300);display:grid;place-items:center;margin-bottom:14px;color:#1b1f2a;font-weight:800}
+.navbtn{width:48px;height:48px;border:0;border-radius:10px;background:transparent;color:var(--rail-ink);display:grid;place-items:center;position:relative}
+.navbtn svg{width:22px;height:22px}
+.navbtn:hover{background:rgba(255,255,255,.08)}
+.navbtn.active{color:#fff;background:rgba(255,255,255,.12)}
+.navbtn.active::before{content:"";position:absolute;left:-8px;top:12px;bottom:12px;width:3px;border-radius:2px;background:#f2c811}
+.navbtn .tip{position:absolute;left:58px;white-space:nowrap;background:#000;color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;opacity:0;pointer-events:none;transition:.15s;z-index:9}
+.navbtn:hover .tip{opacity:1}
+.grow{flex:1}
+main{flex:1;min-width:0;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:14px;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--hair);position:sticky;top:0;z-index:5}
+header h1{font-size:18px;font-weight:600;margin:0}
+header .sub{color:var(--ink-2);font-size:12.5px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;background:var(--surface-2);border:1px solid var(--hair);color:var(--ink-2);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--idle);flex:none}
+.pill.live .dot{background:var(--good);animation:pulse 2s infinite}
+.pill.file .dot{background:var(--accent)}
+.pill.busy .dot{background:var(--warn)}
+.pill.err .dot{background:var(--crit)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.5)}70%{box-shadow:0 0 0 7px rgba(12,163,12,0)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
+.iconbtn{border:1px solid var(--hair);background:var(--surface);color:var(--ink-2);border-radius:8px;height:32px;padding:0 10px;display:inline-flex;align-items:center;gap:6px}
+.iconbtn:hover{border-color:var(--hair-2);color:var(--ink)}
+.content{padding:20px 24px 40px}
+.page{display:none;flex-direction:column;gap:16px}.page.active{display:flex}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:10px;box-shadow:var(--shadow);padding:16px 18px;min-width:0}
+.card h3{margin:0 0 2px;font-size:14px;font-weight:600}
+.hint{color:var(--ink-3);font-size:12px;margin:0 0 8px}
+/* KPIs */
+.kpis{display:grid;grid-template-columns:1.5fr repeat(4,1fr);gap:16px}
+.kpi{position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--kc,var(--accent))}
+.kpi .label{color:var(--ink-2);font-size:12.5px;font-weight:500}
+.kpi .value{font-size:30px;font-weight:600;letter-spacing:-.5px;margin-top:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .value small{font-size:15px;color:var(--ink-2);font-weight:500;margin-left:3px}
+.kpi .foot{color:var(--ink-3);font-size:12px;margin-top:4px}
+.hero{display:flex;align-items:center;gap:10px}
+.hero .gauge{width:124px;height:124px;flex:none}
+.hero .value{font-size:50px;line-height:1}
+.meter{height:6px;border-radius:3px;background:var(--hair);margin-top:10px;position:relative;overflow:hidden}
+.meter i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+.banner{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-radius:8px;font-size:13px}
+.banner.warn{background:rgba(250,178,25,.13);border:1px solid rgba(250,178,25,.5)}
+.banner.info{background:rgba(42,120,214,.08);border:1px solid rgba(42,120,214,.3)}
+.banner svg{flex:none;margin-top:1px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+.col{display:flex;flex-direction:column;gap:16px}
+.chart{width:100%;height:300px}
+/* tabelas */
+table{border-collapse:collapse;width:100%}
+.matrix th{font-size:12px;color:var(--ink-2);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--hair-2);background:var(--surface);position:sticky;top:0;white-space:nowrap}
+.matrix td{padding:7px 10px;border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums;white-space:nowrap}
+.matrix tbody tr:hover td{background:var(--surface-2)}
+.matrix tr.click{cursor:pointer}
+.matrix tfoot td{font-weight:600;border-bottom:0}
+.num{text-align:right}
+.databar{position:relative;min-width:130px}
+.databar .b{position:absolute;left:10px;top:50%;height:16px;transform:translateY(-50%);border-radius:0 4px 4px 0;opacity:.85;max-width:calc(100% - 20px)}
+.databar .t{position:relative;padding-left:6px;font-weight:600}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.tag svg{width:14px;height:14px;flex:none}
+.scroll{max-height:560px;overflow:auto}
+.seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--hair);border-radius:8px;padding:2px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:6px;padding:5px 12px;color:var(--ink-2);font-size:12.5px}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+.cardhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+/* editor */
+.editor{display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:start}
+.blist{display:flex;flex-direction:column;gap:3px;max-height:calc(100vh - 130px);overflow:auto;padding:8px}
+.bitem{border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:8px;color:var(--ink);display:flex;flex-direction:column;gap:5px}
+.bitem:hover{background:var(--surface-2)}
+.bitem.active{background:var(--accent-soft)}
+.bitem .r1{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.bitem .r1 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bitem .r1 b{font-variant-numeric:tabular-nums;font-weight:600}
+.bars2{display:flex;flex-direction:column;gap:2px}
+.mini{height:4px;border-radius:2px;background:var(--hair);overflow:hidden}
+.mini i{display:block;height:100%;border-radius:2px}
+.edit-head{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:14px}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2)}
+.ro{padding:7px 9px;border-radius:6px;background:var(--surface-2);color:var(--ink);font-variant-numeric:tabular-nums;min-width:70px;font-size:14px}
+/* Campos amarelos = células de ENTRADA, gravadas na planilha.
+   .saved pisca verde ao salvar; .bad fica com borda vermelha quando o valor é recusado. */
+input.cell{font:inherit;color:var(--input-ink);background:var(--input);border:1px solid transparent;border-radius:6px;padding:7px 9px;width:100%;outline:none;transition:border-color .15s,box-shadow .15s}
+input.cell:hover{border-color:var(--hair-2)}
+input.cell:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(42,120,214,.18)}
+input.cell.saved{animation:saved 1.2s}
+input.cell.bad{border-color:var(--crit)}
+@keyframes saved{0%{box-shadow:0 0 0 3px rgba(12,163,12,.45)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
+input.num{text-align:right;font-variant-numeric:tabular-nums}
+.title-input{font-size:17px;font-weight:600}
+.etab th{font-size:12px;color:var(--ink-2);font-weight:600;text-align:left;padding:6px;border-bottom:1px solid var(--hair-2);white-space:nowrap}
+.etab td{padding:4px 6px;border-bottom:1px solid var(--hair)}
+.etab tfoot td{font-weight:600;padding:10px 6px;border-bottom:0}
+.computed{color:var(--ink);font-variant-numeric:tabular-nums}
+.progress{height:8px;border-radius:4px;background:var(--hair);overflow:hidden;min-width:70px}
+.progress i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.twobox{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.twobox .box{border:1px solid var(--hair);border-radius:8px;padding:12px 14px}
+.twobox .big{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.badge-ex{display:inline-flex;align-items:center;gap:6px;background:rgba(208,59,59,.1);color:var(--crit);border:1px solid rgba(208,59,59,.35);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+.btn{border:0;background:var(--accent);color:#fff;border-radius:8px;padding:8px 14px;font-weight:600}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transform:translateY(10px);transition:.2s;pointer-events:none;z-index:20;max-width:420px}
+.toast.show{opacity:1;transform:none}
+.toast.err{background:var(--crit);color:#fff}
+.how td{vertical-align:top;white-space:normal}
+.how td:first-child{font-weight:600;width:24%}
+.how td:last-child{color:var(--input-ink);font-variant-numeric:tabular-nums}
+/* ===== Responsivo: telas médias (1250px) e celular (640px) ===== */
+@media (max-width:1250px){.kpis{grid-template-columns:repeat(2,1fr)}.kpis .kpi:first-child{grid-column:span 2}.c4,.c5,.c6,.c7,.c8{grid-column:span 12}.editor{grid-template-columns:1fr}.blist{max-height:260px}}
+@media (max-width:640px){.rail{display:none}.content{padding:16px}header{flex-wrap:wrap;padding:12px 16px}.kpis{grid-template-columns:1fr}.kpis .kpi:first-child{grid-column:auto}.twobox{grid-template-columns:1fr}.etab{font-size:12px}}
+</style>
+</head>
+<body>
+<!-- Barra lateral: cada botão troca de tela (data-page = id da <section> abaixo). -->
+<nav class="rail">
+  <div class="logo">S</div>
+  <button class="navbtn active" data-page="painel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="tip">Painel</span></button>
+  <button class="navbtn" data-page="editar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg><span class="tip">Preencher etapas</span></button>
+  <button class="navbtn" data-page="equipe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c3 .2 5.5 2.6 5.5 5.8"/></svg><span class="tip">Meta e equipe</span></button>
+  <button class="navbtn" data-page="como"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.6M12 16.8v.1"/></svg><span class="tip">Como as contas funcionam</span></button>
+  <div class="grow"></div>
+  <button class="navbtn" id="themeBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><span class="tip">Tema claro/escuro</span></button>
+</nav>
+<!-- Área principal: cabeçalho fixo + as 4 telas (só uma fica visível por vez). -->
+<main>
+  <header>
+    <div>
+      <h1 id="title">Acompanhamento da Montagem – SoBot</h1>
+      <div class="sub" id="subtitle">Sincronizado com a planilha</div>
+    </div>
+    <div class="grow"></div>
+    <!-- Indicador de sincronização: verde = Excel aberto ao vivo; azul = arquivo; amarelo = salvando; vermelho = erro. -->
+    <span class="pill" id="syncPill"><span class="dot"></span><span id="syncText">Conectando…</span></span>
+    <button class="iconbtn" id="refreshBtn" title="Atualizar agora"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>Atualizar</button>
+  </header>
+
+  <div class="content">
+    <!-- ================= PAINEL ================= -->
+    <section class="page active" id="page-painel">
+      <!-- Avisos automáticos (etapas sem tempo ideal, valores de exemplo). Preenchido por renderKpis(). -->
+      <div id="banners" class="col" style="gap:8px"></div>
+      <!-- Faixa de indicadores (KPIs) no topo, como nos dashboards de Power BI. Os números são preenchidos por renderKpis(). -->
+      <div class="kpis">
+        <div class="card kpi" style="--kc:var(--accent)">
+          <div class="hero">
+            <div class="gauge" id="gauge"></div>
+            <div>
+              <div class="label">Progresso geral (pelas tarefas)</div>
+              <div class="value" id="kProg">0%</div>
+              <div class="foot" id="kProgFoot"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card kpi" style="--kc:var(--good)">
+          <div class="label">Robôs concluídos</div>
+          <div class="value" id="kRobos">0</div>
+          <div class="meter" id="kRobosMeter"></div>
+          <div class="foot" id="kRobosFoot"></div>
+        </div>
+        <div class="card kpi" style="--kc:var(--orange)">
+          <div class="label">Unidades concluídas</div>
+          <div class="value" id="kUnid">0</div>
+          <div class="foot" id="kUnidFoot">feitas ÷ previstas, sem contar parciais</div>
+        </div>
+        <div class="card kpi" style="--kc:var(--violet)">
+          <div class="label">Tarefas concluídas</div>
+          <div class="value" id="kTar">0</div>
+          <div class="foot" id="kTarFoot"></div>
+        </div>
+        <div class="card kpi" style="--kc:var(--aqua)">
+          <div class="label">Tempo que falta</div>
+          <div class="value" id="kFalta">0</div>
+          <div class="foot" id="kFaltaFoot"></div>
+        </div>
+      </div>
+
+      <!-- Grade de 12 colunas com os gráficos (c7 = 7 colunas, c5 = 5, c12 = largura toda). Cada .chart é preenchido por renderCharts(). -->
+      <div class="grid">
+        <div class="card c7">
+          <h3>Tarefas × unidades por etapa</h3>
+          <p class="hint">Azul: progresso pelas tarefas (conta as parciais). Laranja: unidades 100% prontas ÷ previstas. Clique para preencher a etapa.</p>
+          <div class="chart" id="chCompare" style="height:700px"></div>
+        </div>
+        <div class="c5 col">
+          <div class="card">
+            <h3>Status das etapas</h3>
+            <p class="hint">Pela Tabela 2 (unidades concluídas)</p>
+            <div class="chart" id="chStatus" style="height:230px"></div>
+          </div>
+          <div class="card">
+            <h3>Quanto cada etapa representa</h3>
+            <p class="hint">Tamanho = tempo ideal de 1 robô · cor = progresso pelas tarefas</p>
+            <div class="chart" id="chTree" style="height:330px"></div>
+          </div>
+        </div>
+        <div class="card c12">
+          <h3>Horas por etapa</h3>
+          <p class="hint">Tempo total da meta dividido em horas já trabalhadas e horas que faltam</p>
+          <div class="chart" id="chHours"></div>
+        </div>
+        <!-- Separação de materiais: só aparece se a planilha tiver esse quadro (escondido por renderCharts()). -->
+        <div class="card c6" id="sepCard">
+          <div class="cardhead"><div><h3>Separação de materiais</h3><p class="hint" id="sepHint">% de kits separados por material</p></div><span class="pill" id="sepKits"></span></div>
+          <div class="chart" id="chSep" style="height:260px"></div>
+        </div>
+        <div class="card c6" id="teamCard">
+          <div class="cardhead"><div><h3>Equipe × prazo</h3><p class="hint">Dias úteis restantes conforme o número de pessoas</p></div><span class="pill" id="teamPill"></span></div>
+          <div class="chart" id="chTeam" style="height:260px"></div>
+        </div>
+        <!-- Tabelas 1 e 2 do resumo final da planilha; os botões ao lado trocam entre elas (renderTable()). -->
+        <div class="card c12">
+          <div class="cardhead">
+            <div><h3 id="tblTitle">Tabela 1 – Progresso por etapa pelas tarefas</h3><p class="hint" id="tblHint">Clique numa linha para preencher a etapa</p></div>
+            <div class="seg"><button class="on" data-t="1">Tabela 1 · Tarefas</button><button data-t="2">Tabela 2 · Unidades</button></div>
+          </div>
+          <div class="scroll"><table class="matrix" id="matrix"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= EDITAR ================= -->
+    <section class="page" id="page-editar">
+      <!-- Esquerda: lista de etapas (mini barras: azul = tarefas, laranja = unidades). Direita: formulário da etapa escolhida, montado por renderEditor(). -->
+      <div class="editor">
+        <div class="card" style="padding:8px"><div class="blist" id="blist"></div></div>
+        <div class="card" id="editPanel"></div>
+      </div>
+    </section>
+
+    <!-- ================= EQUIPE ================= -->
+    <section class="page" id="page-equipe">
+      <div class="grid">
+        <div class="card c5">
+          <h3>Meta e equipe</h3>
+          <p class="hint">A meta vira as “previstas” de todas as etapas.</p>
+          <div class="col" style="gap:12px;margin-top:8px">
+            <label class="field">Meta: quantos robôs vamos montar<input class="cell num" id="inMeta" data-cell="Acompanhamento!B4" data-kind="int"></label>
+            <label class="field">Pessoas montando<input class="cell num" id="inPessoas" data-cell="Equipe!B6" data-kind="num"></label>
+            <label class="field">Horas de trabalho por dia (por pessoa)<input class="cell num" id="inHoras" data-cell="Equipe!B7" data-kind="num"></label>
+          </div>
+          <div class="twobox" id="teamBoxes"></div>
+        </div>
+        <div class="card c7">
+          <h3>E se mudar o tamanho da equipe?</h3>
+          <p class="hint">Dias úteis = tempo que falta ÷ (pessoas × horas por dia)</p>
+          <table class="matrix" id="teamTable"></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= COMO FUNCIONA ================= -->
+    <section class="page" id="page-como">
+      <div class="card">
+        <h3>Como cada conta funciona</h3>
+        <p class="hint">A coluna “Exemplo” usa os números que estão agora na planilha e muda junto com eles.</p>
+        <table class="matrix how" id="howTable"></table>
+      </div>
+    </section>
+  </div>
+</main>
+<!-- Mensagem flutuante: "Salvo na planilha" ou o erro de validação. -->
+<div class="toast" id="toast"></div>
+
+<!-- ===================== LÓGICA (JavaScript) =====================
+     Ordem do código:  utilitários -> gráficos -> indicadores/tabelas -> edição -> gravação
+                       -> navegação/tema -> sincronização com o servidor.
+-->
+<script>
+const $ = s => document.querySelector(s);
+// Ícones SVG usados nos avisos e nos status das etapas.
+const ICON = {
+  ok:'<svg viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/></svg>',
+  prog:'<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  idle:'<svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.4"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></svg>',
+  warn:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c98500" stroke-width="2"><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18v.01"/></svg>',
+  info:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>'
+};
+// Status da Tabela 2 -> ícone e cor. A planilha devolve exatamente estes três textos.
+const ST = {'Concluída':{i:ICON.ok,c:'--good'},'Em andamento':{i:ICON.prog,c:'--accent'},'Não iniciada':{i:ICON.idle,c:'--idle'}};
+const st = s => ST[s] || ST['Não iniciada'];
+// Estado da tela:
+//   D         = últimos dados recebidos do servidor (null até a primeira resposta)
+//   cur       = índice da etapa aberta em "Preencher etapas"
+//   lastSig   = "assinatura" dos dados, para só redesenhar quando algo mudou
+//   tableMode = qual tabela do painel está visível ('1' tarefas, '2' unidades)
+//   saving    = quantas gravações estão em andamento (pausa a atualização automática)
+let D=null, cur=-1, lastSig='', tableMode='1', saving=0;
+// Utilitários de dados e formatação (padrão brasileiro: vírgula decimal).
+// css(): lê uma variável de cor do CSS, para os gráficos acompanharem o tema.
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+// n(): converte qualquer valor da planilha em número (vazio ou texto vira 0).
+const n = v => (v===''||v===null||v===undefined||isNaN(+v)) ? 0 : +v;
+// pct(): 0.5 -> "50%"   fmt(): número com casas fixas   fint(): número sem casas desnecessárias
+const pct = (v,d=0) => (n(v)*100).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d})+'%';
+const fmt = (v,d=1) => n(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fint = v => n(v).toLocaleString('pt-BR',{maximumFractionDigits:2});
+// esc(): escapa HTML. SEGURANÇA: todo texto vindo da planilha passa por aqui antes de entrar na página.
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// short(): corta nomes longos com "…" (rótulos dos gráficos).
+const short = (t,k=32) => { const s=String(t||''); return s.length>k ? s.slice(0,k-1)+'…' : s; };
+// code(): pega o número do início do nome da etapa ("3. Montagem..." -> "3") para o eixo dos gráficos.
+const code = (t,i) => { const m=String(t).match(/^\s*(\d+)/); return m?m[1]:(/separa/i.test(t)?'Sep.':String(i+1)); };
+// etapas na ordem da Tabela 1/2: índice 0 = separação, 1..24 = etapas
+// "Blocos" = quadros da planilha na ordem dela. A posição i bate com a linha i das Tabelas 1 e 2 (D.t1[i], D.t2[i]).
+const blocks = () => D.blocks;
+const sepIdx = () => D.blocks.findIndex(b=>b.kind==='sep');
+
+/* ================= gráficos ================= */
+// ECharts: guardamos uma instância por gráfico (pelo id do elemento) e redimensionamos com a janela.
+const charts={};
+// ch(id): devolve (e cria, se preciso) o gráfico do elemento com esse id. Renderizador SVG = nítido em qualquer zoom.
+function ch(id){ if(!charts[id]) charts[id]=echarts.init(document.getElementById(id),null,{renderer:'svg'}); return charts[id]; }
+window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+// Estilos compartilhados por todos os gráficos: tooltip, eixos, linhas de grade e legenda.
+const tip = () => ({backgroundColor:css('--surface'),borderColor:css('--hair-2'),textStyle:{color:css('--ink'),fontSize:12.5},extraCssText:'box-shadow:0 4px 16px rgba(0,0,0,.15);border-radius:8px;'});
+const base = () => ({textStyle:{fontFamily:'Segoe UI, system-ui, sans-serif',color:css('--ink-2')},tooltip:tip(),animationDuration:500});
+const axisLine=()=>({lineStyle:{color:css('--hair-2')}});
+const split=()=>({lineStyle:{color:css('--hair'),width:1,type:'solid'}});
+const legend=()=>({top:0,left:0,icon:'roundRect',itemWidth:10,itemHeight:10,textStyle:{color:css('--ink-2')}});
+
+// Desenha TODOS os gráficos a partir de D. É chamada a cada atualização de dados e ao trocar o tema.
+// T1 = linhas da Tabela 1 sem o Total (progresso pelas tarefas); T2 = idem da Tabela 2 (unidades).
+function renderCharts(){
+  const acc=css('--accent'),org=css('--orange'),good=css('--good'),idle=css('--idle'),ink=css('--ink'),ink2=css('--ink-2'),soft=css('--accent-soft');
+  const T1=D.t1.slice(0,-1), T2=D.t2.slice(0,-1);
+
+  // Medidor circular do indicador principal: progresso geral = tempo trabalhado ÷ tempo total.
+  ch('gauge').setOption({series:[{type:'gauge',startAngle:220,endAngle:-40,min:0,max:100,radius:'96%',
+    progress:{show:true,width:12,roundCap:true,itemStyle:{color:acc}},axisLine:{roundCap:true,lineStyle:{width:12,color:[[1,css('--hair')]]}},
+    pointer:{show:false},axisTick:{show:false},splitLine:{show:false},axisLabel:{show:false},anchor:{show:false},title:{show:false},detail:{show:false},
+    data:[{value:+(n(D.ind.tempo.pct)*100).toFixed(1)}]}]},true);
+
+  // tarefas x unidades
+  // Ordem invertida: o ECharts desenha as categorias de baixo para cima; invertendo, a etapa 1 fica no topo.
+  const ord=[...T1.keys()].reverse();
+  ch('chCompare').setOption({...base(),
+    legend:{...legend(),data:['Pelas tarefas','Unidades concluídas']},
+    grid:{left:8,right:48,top:30,bottom:4,containLabel:true},
+    xAxis:{type:'value',max:1,axisLabel:{formatter:v=>pct(v),color:ink2},splitLine:split()},
+    yAxis:{type:'category',data:ord.map(i=>short(T1[i].etapa)),axisTick:{show:false},axisLine:axisLine(),axisLabel:{color:ink2,fontSize:12}},
+    tooltip:{...tip(),trigger:'axis',axisPointer:{type:'shadow',shadowStyle:{color:'rgba(127,127,127,.08)'}},formatter:ps=>{const i=ord[ps[0].dataIndex];
+      return `<b>${esc(T1[i].etapa)}</b><br>${ps[0].marker}Pelas tarefas: <b>${pct(T1[i].progresso,1)}</b><br>${ps[1].marker}Unidades: <b>${T2[i].frac}</b> (${pct(T2[i].pct)})`;}},
+    series:[
+      {name:'Pelas tarefas',type:'bar',barWidth:9,barGap:'25%',itemStyle:{color:acc,borderRadius:[0,4,4,0]},data:ord.map(i=>n(T1[i].progresso)),
+       label:{show:true,position:'right',color:ink,fontSize:11,formatter:p=>p.value>0?pct(p.value):''}},
+      {name:'Unidades concluídas',type:'bar',barWidth:9,itemStyle:{color:org,borderRadius:[0,4,4,0]},data:ord.map(i=>n(T2[i].pct)),
+       label:{show:true,position:'right',color:ink2,fontSize:11,formatter:p=>p.value>0?pct(p.value):''}}]
+  },true);
+  ch('chCompare').off('click'); ch('chCompare').on('click',p=>openBlock(ord[p.dataIndex]));
+
+  // status
+  // Conta quantas etapas há em cada status (texto vindo da Tabela 2 da planilha).
+  const cnt=s=>T2.filter(r=>r.status===s).length;
+  const sd=[{name:'Concluída',value:cnt('Concluída'),itemStyle:{color:good}},{name:'Em andamento',value:cnt('Em andamento'),itemStyle:{color:acc}},{name:'Não iniciada',value:cnt('Não iniciada'),itemStyle:{color:idle}}];
+  ch('chStatus').setOption({...base(),
+    title:{text:`${cnt('Concluída')}/${T2.length}`,subtext:'concluídas',left:'29%',top:'37%',textAlign:'center',itemGap:2,textStyle:{color:ink,fontSize:22,fontWeight:600},subtextStyle:{color:ink2,fontSize:12}},
+    tooltip:{...tip(),trigger:'item',formatter:p=>`${p.marker}${p.name}: <b>${p.value}</b> etapa(s)`},
+    legend:{orient:'vertical',right:10,top:'middle',icon:'roundRect',itemWidth:10,itemHeight:10,textStyle:{color:ink2},formatter:nm=>`${nm}  ${sd.find(x=>x.name===nm).value}`},
+    series:[{type:'pie',radius:['60%','82%'],center:['30%','50%'],padAngle:2,itemStyle:{borderRadius:4},label:{show:false},data:sd.filter(x=>x.value>0)}]
+  },true);
+
+  // treemap
+  // Treemap: tamanho do retângulo = tempo ideal da etapa; cor = faixa de progresso (6 tons de azul, claro -> escuro).
+  const ramp=['#cde2fb','#9ec5f4','#6da7ec','#3987e5','#256abf','#184f95'];
+  const tdata=T1.map((r,i)=>({name:short(r.etapa,26),value:n(r.tempoRobo),idx:i,prog:n(r.progresso),peso:n(r.peso),full:r.etapa})).filter(x=>x.value>0)
+    .map(x=>({...x,itemStyle:{color:ramp[Math.min(5,Math.floor(x.prog*6))]}}));
+  ch('chTree').setOption({...base(),
+    tooltip:{...tip(),formatter:p=>{const x=p.data;return `<b>${esc(x.full)}</b><br>Tempo ideal: ${fint(x.value)} min por robô<br>Representa: <b>${pct(x.peso,1)}</b> do robô<br>Progresso: ${pct(x.prog)}`;}},
+    series:[{type:'treemap',roam:false,nodeClick:false,breadcrumb:{show:false},left:0,right:0,top:0,bottom:0,
+      itemStyle:{borderColor:css('--surface'),borderWidth:2,gapWidth:2,borderRadius:4},
+      label:{show:true,formatter:p=>`${p.name}\n${pct(p.data.peso)}`,color:'#0b0b0b',fontSize:12,lineHeight:16},
+      data:tdata}],
+    graphic: tdata.length?[]:[{type:'text',left:'center',top:'middle',style:{text:'Preencha o tempo ideal das subatividades',fill:ink2,fontSize:13}}]
+  },true);
+  ch('chTree').off('click'); ch('chTree').on('click',p=>p.data&&openBlock(p.data.idx));
+  // texto escuro/claro conforme o fundo
+  ch('chTree').setOption({series:[{data:tdata.map(x=>({...x,label:{color:x.prog*6>=3?'#fff':'#0b0b0b'}}))}]});
+
+  // horas
+  ch('chHours').setOption({...base(),
+    legend:legend(), grid:{left:8,right:16,top:34,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:T1.map((r,i)=>code(r.etapa,i)),axisTick:{show:false},axisLine:axisLine(),axisLabel:{color:ink2}},
+    yAxis:{type:'value',axisLabel:{formatter:v=>v+' h',color:ink2},splitLine:split()},
+    tooltip:{...tip(),trigger:'axis',axisPointer:{type:'shadow',shadowStyle:{color:'rgba(127,127,127,.08)'}},formatter:ps=>{const r=T1[ps[0].dataIndex];
+      return `<b>${esc(r.etapa)}</b><br>${ps.map(p=>`${p.marker}${p.seriesName}: <b>${fmt(p.value,2)} h</b>`).join('<br>')}<br>Total: ${fmt(r.hTotal,2)} h`;}},
+    series:[
+      {name:'Trabalhadas',type:'bar',stack:'h',barMaxWidth:24,itemStyle:{color:acc},data:T1.map(r=>+(n(r.hTotal)-n(r.hFalta)).toFixed(2))},
+      {name:'Faltam',type:'bar',stack:'h',barMaxWidth:24,itemStyle:{color:org,borderRadius:[4,4,0,0]},data:T1.map(r=>+n(r.hFalta).toFixed(2))}]
+  },true);
+  ch('chHours').off('click'); ch('chHours').on('click',p=>openBlock(p.dataIndex));
+
+  // separação (só existe em algumas versões da planilha)
+  const si=sepIdx(), SEP=D.blocks[si];
+  $('#sepCard').style.display=SEP?'':'none';
+  $('#teamCard').className='card '+(SEP?'c6':'c12');
+  if(SEP){
+  const S=SEP.rows.filter(r=>String(r.material).trim()!=='');
+  $('#sepKits').innerHTML=`<span class="dot" style="background:var(--accent)"></span>Kits completos: <b>${SEP.kitsFrac||'0/0'}</b>`;
+  ch('chSep').setOption({...base(),
+    grid:{left:8,right:44,top:6,bottom:6,containLabel:true},
+    xAxis:{type:'value',max:1,axisLabel:{formatter:v=>pct(v),color:ink2},splitLine:split()},
+    yAxis:{type:'category',inverse:true,data:S.map(r=>short(r.material,28)),axisTick:{show:false},axisLine:axisLine(),axisLabel:{color:ink2}},
+    tooltip:{...tip(),trigger:'item',formatter:p=>{const r=S[p.dataIndex];return `<b>${esc(r.material)}</b><br>Qtd. total: ${fint(r.qtdTotal)} · por robô: ${fint(r.qtdRobo)}<br>Kits separados: ${fint(r.kits)} de ${fint(SEP.previstas)}<br>Falta separar: ${fint(r.falta)}`;}},
+    series:[{type:'bar',barMaxWidth:16,showBackground:true,backgroundStyle:{color:css('--surface-2'),borderRadius:[0,4,4,0]},
+      data:S.map(r=>({value:n(r.pct),itemStyle:{color:n(r.pct)>=1?good:acc,borderRadius:[0,4,4,0]}})),
+      label:{show:true,position:'right',color:ink,fontSize:12,formatter:p=>pct(p.value)}}],
+    graphic:S.length?[]:[{type:'text',left:'center',top:'middle',style:{text:'Nenhum material cadastrado',fill:ink2,fontSize:13}}]
+  },true);
+  ch('chSep').off('click'); ch('chSep').on('click',()=>openBlock(si));
+  }
+
+  // equipe
+  const C=D.team.cenarios, P=n(D.team.pessoas);
+  $('#teamPill').innerHTML=`<span class="dot" style="background:var(--aqua)"></span>Hoje: <b>${fint(P)} pessoa(s)</b> · ${fmt(D.team.diasRest)} dias`;
+  ch('chTeam').setOption({...base(),
+    grid:{left:8,right:16,top:20,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:C.map(c=>c.pessoas+(c.pessoas==1?' pessoa':' pessoas')),axisTick:{show:false},axisLine:axisLine(),axisLabel:{color:ink2}},
+    yAxis:{type:'value',axisLabel:{formatter:v=>fmt(v,1)+' d',color:ink2},splitLine:split()},
+    tooltip:{...tip(),trigger:'item',formatter:p=>{const c=C[p.dataIndex];return `<b>${c.pessoas} pessoa(s)</b><br>${fint(c.horas)} h de equipe por dia<br>Dias úteis restantes: <b>${fmt(c.dias,1)}</b>`;}},
+    series:[{type:'bar',barMaxWidth:28,data:C.map(c=>({value:+n(c.dias).toFixed(2),itemStyle:{color:n(c.pessoas)===P?css('--aqua'):soft,borderRadius:[4,4,0,0]}})),
+      label:{show:true,position:'top',color:ink,fontSize:11,formatter:p=>fmt(p.value,1)}}]
+  },true);
+}
+
+/* ================= KPIs, avisos e tabelas ================= */
+// Preenche o cabeçalho e os indicadores do topo e monta os avisos. Textos de planilha entram via textContent/esc().
+function renderKpis(){
+  const I=D.ind;
+  $('#title').textContent=D.titulo||'Acompanhamento da Montagem – SoBot';
+  $('#subtitle').textContent=`Sincronizado com ${D.arquivo} · meta de ${fint(D.meta)} robôs`;
+  $('#kProg').textContent=pct(I.tempo.pct);
+  $('#kProgFoot').textContent=`${fmt(I.tempo.feito)} h trabalhadas de ${fmt(I.tempo.total)} h`;
+  $('#kRobos').innerHTML=`${fint(I.robos.feito)}<small>/ ${fint(I.robos.total)}</small>`;
+  $('#kRobosMeter').innerHTML=`<i style="width:${n(I.robos.pct)*100}%;background:var(--good)"></i>`;
+  $('#kRobosFoot').textContent='Menor nº de unidades concluídas entre as etapas';
+  $('#kUnid').innerHTML=`${fint(I.unidades.feito)}<small>/ ${fint(I.unidades.total)} · ${pct(I.unidades.pct)}</small>`;
+  $('#kTar').innerHTML=`${fint(I.tarefas.feito)}<small>/ ${fint(I.tarefas.total)}</small>`;
+  $('#kTarFoot').textContent=`Etapas concluídas: ${fint(I.etapas.feito)} de ${fint(I.etapas.total)}`;
+  $('#kFalta').innerHTML=`${fmt(I.falta)}<small>h</small>`;
+  $('#kFaltaFoot').textContent= I.dias===''?'informe pessoas e horas/dia':`≈ ${fmt(I.dias)} dias úteis · ${fint(D.team.pessoas)} pessoa(s) × ${fint(D.team.horasDia)} h`;
+
+  // Avisos: etapas sem tempo ideal (não pesam no progresso) e quadros que ainda têm valores de EXEMPLO.
+  const ex=blocks().filter(b=>b.exemplo).map(b=>short(b.titulo,40));
+  let html='';
+  if(n(I.semTempo)>0) html+=`<div class="banner warn">${ICON.warn}<span><b>${fint(I.semTempo)} etapa(s) ainda sem tempo ideal</b> — elas não pesam no progresso geral até você preencher o tempo das subatividades.</span></div>`;
+  if(ex.length) html+=`<div class="banner info">${ICON.info}<span>Valores de <b>exemplo</b> (não são dados reais) em: ${ex.map(esc).join(', ')}. Substitua pelos seus em <a href="#" onclick="go('editar');return false">Preencher etapas</a>.</span></div>`;
+  $('#banners').innerHTML=html;
+}
+
+// Tabela do painel (1 = progresso pelas tarefas, 2 = unidades concluídas). Clicar numa linha abre a etapa para preencher.
+function renderTable(){
+  const B=blocks();
+  if(tableMode==='1'){
+    $('#tblTitle').textContent='Tabela 1 – Progresso por etapa pelas tarefas';
+    $('#tblHint').textContent='Peças concluídas de cada subatividade, sobre as previstas · clique numa linha para preencher';
+    const rows=D.t1.slice(0,-1).map((r,i)=>`<tr class="click" onclick="openBlock(${i})">
+      <td>${esc(r.etapa)}</td><td class="num">${fint(r.tempoRobo)}</td><td class="num">${pct(r.peso,1)}</td>
+      <td class="num">${fint(r.previstas)}</td>
+      <td class="databar"><div class="b" style="width:${n(r.progresso)*100}%;background:var(--accent)"></div><span class="t">${pct(r.progresso)}</span></td>
+      <td class="num">${fmt(r.hTotal,2)}</td><td class="num">${fmt(r.hFalta,2)}</td></tr>`).join('');
+    const t=D.t1.at(-1);
+    $('#matrix').innerHTML=`<thead><tr><th>Etapa</th><th class="num">Tempo por robô (min)</th><th class="num">Peso no robô</th><th class="num">Previstas</th><th>Progresso</th><th class="num">Tempo total (h)</th><th class="num">Tempo que falta (h)</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="num">${fint(t.tempoRobo)}</td><td class="num">${pct(t.peso)}</td><td class="num">${fint(t.previstas)}</td><td>${pct(t.progresso,1)}</td><td class="num">${fmt(t.hTotal,2)}</td><td class="num">${fmt(t.hFalta,2)}</td></tr></tfoot>`;
+  } else {
+    $('#tblTitle').textContent='Tabela 2 – Unidades concluídas por etapa';
+    $('#tblHint').textContent='Feitas ÷ previstas, sem contar as parciais · clique numa linha para preencher';
+    const rows=D.t2.slice(0,-1).map((r,i)=>`<tr class="click" onclick="openBlock(${i})">
+      <td>${esc(r.etapa)}</td><td class="num">${fint(r.feitas)}</td><td class="num">${fint(r.previstas)}</td><td class="num">${esc(r.frac)}</td>
+      <td class="databar"><div class="b" style="width:${n(r.pct)*100}%;background:var(--orange)"></div><span class="t">${pct(r.pct)}</span></td>
+      <td><span class="tag">${st(r.status).i}${esc(r.status)}</span></td></tr>`).join('');
+    const t=D.t2.at(-1);
+    $('#matrix').innerHTML=`<thead><tr><th>Etapa</th><th class="num">Feitas</th><th class="num">Previstas</th><th class="num">Feitas/Previstas</th><th>% concluída</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td>Total</td><td class="num">${fint(t.feitas)}</td><td class="num">${fint(t.previstas)}</td><td class="num">${esc(t.frac)}</td><td>${pct(t.pct,1)}</td><td></td></tr></tfoot>`;
+  }
+}
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{tableMode=b.dataset.t;document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('on',x===b));renderTable();});
+
+/* ================= preencher etapas ================= */
+// pin(): 0.5 -> 50 (para mostrar em campo de %).   val(): campo vazio continua vazio (e não vira 0).
+const pin = v => v===''||v===null ? '' : +(n(v)*100).toFixed(2);
+const val = v => v===''||v===null ? '' : v;
+// Lista da esquerda em "Preencher etapas": nome, % e duas mini barras (azul = tarefas, laranja = unidades).
+function renderList(){
+  const T1=D.t1, T2=D.t2;
+  $('#blist').innerHTML=blocks().map((b,i)=>`<button class="bitem ${i===cur?'active':''}" onclick="openBlock(${i})">
+    <div class="r1"><span title="${esc(b.titulo)}">${b.exemplo?'⚑ ':''}${esc(b.titulo)}</span><b>${pct(T1[i].progresso)}</b></div>
+    <div class="bars2"><div class="mini"><i style="width:${n(T1[i].progresso)*100}%;background:var(--accent)"></i></div>
+    <div class="mini"><i style="width:${n(T2[i].pct)*100}%;background:var(--orange)"></i></div></div></button>`).join('');
+}
+// Formulário da etapa aberta. Cada <input class="cell"> carrega no próprio HTML:
+//   data-cell = endereço da célula na planilha ("Aba!B4" ou só "D15", que é da aba principal)
+//   data-kind = tipo do valor: text | num | int | pct   (usado por parseVal)
+//   data-max  = teto opcional (peças concluídas não passam das previstas)
+// Os valores calculados (peso, %, tempos) aparecem como texto, nunca como campo: vêm das fórmulas.
+function renderEditor(){
+  if(cur<0) cur=0;
+  const b=blocks()[cur], t1=D.t1[cur], t2=D.t2[cur];
+  const ex=b.exemplo?`<span class="badge-ex">⚑ Valores de exemplo — substitua pelos seus</span>`:'';
+  // Quadro de separação de materiais tem colunas próprias (material, quantidade, kits).
+  if(b.kind==='sep'){
+    const rows=b.rows.map(r=>`<tr>
+      <td style="min-width:220px"><input class="cell" data-cell="A${r.row}" data-kind="text" value="${esc(r.material)}" placeholder="Nome do material…"></td>
+      <td style="width:120px"><input class="cell num" data-cell="B${r.row}" data-kind="num" value="${val(r.qtdTotal)}"></td>
+      <td class="computed num" style="width:110px">${r.qtdRobo===''?'':fint(r.qtdRobo)}</td>
+      <td style="width:120px"><input class="cell num" data-cell="D${r.row}" data-kind="int" value="${val(r.kits)}"></td>
+      <td style="width:150px">${r.pct===''?'':`<div style="display:flex;gap:8px;align-items:center"><div class="progress" style="flex:1"><i style="width:${n(r.pct)*100}%;background:var(${n(r.pct)>=1?'--good':'--accent'})"></i></div><span class="computed">${pct(r.pct)}</span></div>`}</td>
+      <td class="computed num" style="width:120px">${r.falta===''?'':fint(r.falta)}</td></tr>`).join('');
+    $('#editPanel').innerHTML=`
+      <div class="edit-head">
+        <div class="field" style="flex:1"><span>Etapa</span><div style="font-size:17px;font-weight:600;color:var(--ink)">${esc(b.titulo)}</div></div>
+        <div class="field">Unidades previstas<div class="ro">${fint(b.previstas)}</div></div>
+        <label class="field" style="width:150px">Tempo por kit (min)<input class="cell num" data-cell="${b.tempoKitCell}" data-kind="num" value="${val(b.tempoKit)}"></label>
+        <div class="field">Peso no robô<div class="ro">${pct(t1.peso,1)}</div></div>
+        ${ex}
+      </div>
+      <table class="etab"><thead><tr><th>Material</th><th class="num">Qtd. total</th><th class="num">Qtd. por robô</th><th class="num">Kits separados</th><th>% separado</th><th class="num">Falta separar</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td>Total da etapa (média do % separado)</td><td class="num">${fint(b.totalQtd)}</td><td></td><td></td><td>${pct(b.pctMedio,1)}</td><td class="num">${fint(b.faltaTotal)}</td></tr></tfoot></table>
+      <div class="twobox">
+        <div class="box"><div class="hint">Progresso da separação (média do % separado)</div><div class="big">${pct(b.pctMedio,1)}</div></div>
+        <div class="box"><div class="hint">Kits completos ÷ previstos</div><div class="big">${esc(b.kitsFrac)} · ${pct(b.kitsPct)}</div></div>
+      </div>
+      <p class="hint" style="margin-top:12px">Qtd. por robô = qtd. total ÷ previstas. Kits completos = menor nº de kits separados entre os materiais. Os campos amarelos são gravados na planilha ao sair do campo (Tab ou Enter).</p>`;
+    return;
+  }
+  const rows=b.rows.map(r=>`<tr>
+    <td style="min-width:220px"><input class="cell" data-cell="A${r.row}" data-kind="text" value="${esc(r.sub)}" placeholder="Descreva a subatividade…"></td>
+    <td style="width:110px"><input class="cell num" data-cell="B${r.row}" data-kind="num" value="${val(r.tempo)}"></td>
+    <td class="computed num" style="width:90px">${r.peso===''?'':pct(r.peso)}</td>
+    <td style="width:120px"><input class="cell num" data-cell="D${r.row}" data-kind="int" data-max="${n(b.previstas)}" value="${val(r.pecas)}" placeholder="0"></td>
+    <td style="width:170px">${r.sub===''?'':`<div style="display:flex;gap:8px;align-items:center"><div class="progress" style="flex:1"><i style="width:${n(r.pct)*100}%;background:var(${n(r.pct)>=1?'--good':'--accent'})"></i></div><span class="computed" style="min-width:86px;text-align:right">${fint(r.pecas||0)}/${fint(b.previstas)} · ${pct(r.pct)}</span></div>`}</td>
+    <td class="computed num" style="width:110px">${r.tTotal===''?'':fint(r.tTotal)}</td>
+    <td class="computed num" style="width:120px">${r.tFalta===''?'':fint(r.tFalta)}</td></tr>`).join('');
+  $('#editPanel').innerHTML=`
+    <div class="edit-head">
+      <label class="field" style="flex:1;min-width:260px">Nome da etapa<input class="cell title-input" data-cell="A${b.titleRow}" data-kind="text" value="${esc(b.titulo)}"></label>
+      <div class="field">Previstas (meta)<div class="ro">${fint(b.previstas)}</div></div>
+      <div class="field">Unidades concluídas (automático)<div class="ro">${fint(b.concluidas)}</div></div>
+      <div class="field">Peso no robô<div class="ro">${pct(b.pesoRobo,1)}</div></div>
+      ${ex}
+    </div>
+    <table class="etab"><thead><tr><th>Subatividade</th><th class="num">Tempo ideal (min)</th><th class="num">Peso na etapa</th><th class="num">Peças concluídas</th><th>% concluído</th><th class="num">Tempo total (min)</th><th class="num">Tempo que falta (min)</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td>Total da etapa</td><td class="num">${fint(b.tempoEtapa)}</td><td></td><td></td><td></td><td class="num">${fint(b.tTotal)}</td><td class="num">${fint(b.tFalta)}</td></tr></tfoot></table>
+    <div class="twobox">
+      <div class="box"><div class="hint">Progresso pelas tarefas (conta as parciais)</div><div class="big" style="color:var(--accent)">${pct(b.progresso,1)}</div>
+        <div class="hint" style="margin:4px 0 0">${fint(b.tarefas100)} de ${fint(b.tarefas)} subatividade(s) 100%</div></div>
+      <div class="box"><div class="hint">Unidades concluídas ÷ previstas (menor nº de peças entre as subatividades)</div><div class="big" style="color:var(--orange)">${esc(b.unidFrac)} · ${pct(b.unidPct)}</div>
+        <div class="hint" style="margin:4px 0 0">Status: ${esc(t2.status)}</div></div>
+    </div>
+    <p class="hint" style="margin-top:12px">Digite quantas peças já estão concluídas em cada subatividade: o % sai sozinho (peças ÷ previstas) e as unidades concluídas são a menor contagem entre as subatividades. O peso de cada subatividade sai do tempo ideal. Os campos amarelos são gravados na planilha ao sair do campo (Tab ou Enter); Esc desfaz.</p>`;
+}
+
+/* ================= meta e equipe / como funciona ================= */
+// Telas "Meta e equipe" e "Como funciona". Não sobrescreve um campo enquanto o usuário digita nele.
+function renderTeam(){
+  const T=D.team;
+  [['#inMeta',D.meta],['#inPessoas',T.pessoas],['#inHoras',T.horasDia]].forEach(([s,v])=>{ if(document.activeElement!==$(s)) $(s).value=val(v); });
+  $('#teamBoxes').innerHTML=`<div class="box"><div class="hint">Dias úteis restantes</div><div class="big">${T.diasRest===''?'—':fmt(T.diasRest)}</div></div>
+    <div class="box"><div class="hint">Dias úteis para a meta inteira</div><div class="big">${T.diasMeta===''?'—':fmt(T.diasMeta)}</div></div>`;
+  $('#teamTable').innerHTML=`<thead><tr><th>Pessoas</th><th class="num">Horas por dia (equipe)</th><th class="num">Dias úteis restantes</th></tr></thead><tbody>`+
+    T.cenarios.map(c=>`<tr style="${n(c.pessoas)===n(T.pessoas)?'font-weight:600':''}"><td>${fint(c.pessoas)} ${n(c.pessoas)===n(T.pessoas)?'<span class="pill" style="margin-left:6px">equipe atual</span>':''}</td><td class="num">${fint(c.horas)}</td><td class="num">${fmt(c.dias)}</td></tr>`).join('')+'</tbody>';
+  $('#howTable').innerHTML=`<thead><tr><th>Conta</th><th>Como é calculada</th><th>Exemplo com os números atuais</th></tr></thead><tbody>`+
+    D.how.filter(h=>h.conta!=='').map(h=>`<tr><td>${esc(h.conta)}</td><td>${esc(h.como)}</td><td>${esc(h.exemplo)}</td></tr>`).join('')+'</tbody>';
+}
+
+// editing(): true se o cursor está num campo amarelo. Evita redesenhar e apagar o que a pessoa está digitando.
+function editing(){ const a=document.activeElement; return a && a.classList && a.classList.contains('cell'); }
+// Redesenha tudo. Os formulários só são refeitos se não houver digitação em andamento (ou se force=true).
+function renderAll(force){
+  renderKpis(); renderCharts(); renderTable();
+  if(force || !editing()){ renderList(); renderEditor(); renderTeam(); }
+}
+
+/* ================= gravação ================= */
+// toast(): mensagem flutuante de 2,6 s (err=true deixa vermelha).
+function toast(msg,err){ const t=$('#toast'); t.textContent=msg; t.className='toast show'+(err?' err':''); clearTimeout(t._h); t._h=setTimeout(()=>t.className='toast',2600); }
+// parseVal(): valida e converte o que foi digitado ANTES de enviar. Aceita vírgula decimal e "50%".
+// Devolve {v: valor} ou {err: "mensagem"}. O servidor valida de novo (nunca confie só na tela).
+// kind 'pct' converte 50 -> 0.5 (a planilha guarda % como fração).
+function parseVal(kind,raw){
+  raw=String(raw).trim();
+  if(kind==='text') return {v:raw};
+  if(raw==='') return {v:''};
+  let s=raw.replace('%','').trim();
+  if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.');
+  const x=Number(s);
+  if(isNaN(x)||x<0) return {err:'Valor inválido'};
+  if(kind==='int' && !Number.isInteger(x)) return {err:'Use um número inteiro'};
+  if(kind==='pct'){ if(x>100) return {err:'O % concluído vai de 0 a 100'}; return {v:+(x/100).toFixed(6)}; }
+  return {v:x};
+}
+// save(): envia as alterações ao servidor (POST /api/set), que grava no Excel, deixa as fórmulas
+// recalcularem e devolve os dados novos; a tela então se redesenha com o resultado.
+// "saving" pausa a atualização automática para ela não atropelar a gravação.
+async function save(changes,el){
+  saving++; setBusy(true);
+  try{
+    const r=await fetch('/api/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changes})});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'Erro ao salvar');
+    D=j.data; lastSig=sig(D);
+    renderAll(true);
+    const same=el && document.querySelector(`[data-cell="${el.dataset.cell}"]`);
+    if(same) same.classList.add('saved');
+    toast('Salvo na planilha ✓');
+  }catch(e){ if(el) el.classList.add('bad'); toast(e.message,true); }
+  finally{ saving--; setBusy(false); }
+}
+// ---- Edição por teclado (um único ouvinte para todos os campos .cell) ----
+// focusin  : guarda o valor original (para detectar mudança e permitir desfazer com Esc)
+// keydown  : Enter vai ao próximo campo; Esc desfaz
+// focusout : ao sair do campo, se mudou -> valida -> save()  (por isso "grava ao sair do campo")
+document.addEventListener('focusin',e=>{ if(e.target.classList.contains('cell')) e.target.dataset.orig=e.target.value; });
+document.addEventListener('keydown',e=>{
+  if(!e.target.classList.contains('cell')) return;
+  if(e.key==='Enter'){ e.preventDefault(); const all=[...document.querySelectorAll('.page.active input.cell')]; const nx=all[all.indexOf(e.target)+1]; nx?nx.focus():e.target.blur(); }
+  if(e.key==='Escape'){ e.target.value=e.target.dataset.orig||''; e.target.blur(); }
+});
+document.addEventListener('focusout',e=>{
+  const el=e.target; if(!el.classList.contains('cell')) return;
+  if(el.value===el.dataset.orig) return;
+  const p=parseVal(el.dataset.kind,el.value);
+  if(!p.err && el.dataset.max!==undefined && p.v!=='' && p.v>Number(el.dataset.max)) p.err=`As peças concluídas não podem passar das previstas (${el.dataset.max})`;
+  if(p.err){ el.classList.add('bad'); toast(p.err,true); return; }
+  save([{cell:el.dataset.cell,value:p.v}],el);
+});
+
+/* ================= navegação ================= */
+// go(): troca de tela (mostra a <section id="page-...">) e lembra a última tela no navegador (localStorage).
+function go(p){
+  document.querySelectorAll('.navbtn[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===p));
+  document.querySelectorAll('.page').forEach(s=>s.classList.toggle('active',s.id==='page-'+p));
+  if(p==='painel') setTimeout(()=>Object.values(charts).forEach(c=>c.resize()),30);
+  try{localStorage.setItem('sobot-page',p)}catch(e){}
+}
+// openBlock(): abre a etapa i em "Preencher etapas" (usado ao clicar em gráficos e tabelas).
+function openBlock(i){ cur=i; renderList(); renderEditor(); go('editar'); window.scrollTo(0,0); }
+document.querySelectorAll('.navbtn[data-page]').forEach(b=>b.onclick=()=>go(b.dataset.page));
+// Botão da lua: alterna claro/escuro, guarda a escolha e recria os gráficos (eles leem as cores do CSS).
+$('#themeBtn').onclick=()=>{
+  const dark=document.documentElement.dataset.theme ? document.documentElement.dataset.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme=dark?'light':'dark';
+  try{localStorage.setItem('sobot-theme',document.documentElement.dataset.theme)}catch(e){}
+  Object.values(charts).forEach(c=>c.dispose()); for(const k in charts) delete charts[k];
+  if(D) renderAll(true);
+};
+// Ao abrir: restaura o tema e a tela escolhidos da última vez.
+try{ const t=localStorage.getItem('sobot-theme'); if(t) document.documentElement.dataset.theme=t; const p=localStorage.getItem('sobot-page'); if(p && $('#page-'+p)) go(p);}catch(e){}
+
+/* ================= sincronização ================= */
+// sig(): "assinatura" dos dados (o JSON sem o campo de erro). Se não mudou, não redesenhamos.
+const sig=d=>JSON.stringify({...d,error:0});
+// Indicador do topo: "Salvando…" durante a gravação.
+function setBusy(on){ if(on){ $('#syncPill').className='pill busy'; $('#syncText').textContent='Salvando na planilha…'; } else if(D) setSync(D); }
+// Indicador do topo: verde = lendo o Excel aberto ao vivo; azul = lendo o arquivo; vermelho = erro.
+function setSync(d){
+  if(saving) return;
+  const hh=new Date().toLocaleTimeString('pt-BR');
+  $('#syncPill').className='pill '+(d.error?'err':(d.mode==='excel'?'live':'file'));
+  $('#syncText').textContent=d.error?d.error:(d.mode==='excel'?`Excel aberto · ao vivo · ${hh}`:`Arquivo salvo · sincronizado · ${hh}`);
+}
+// poll(): pergunta os dados atuais (GET /api/data). É assim que uma edição feita DIRETO no Excel
+// aparece aqui em até 2 segundos. Se o servidor não responde, mostra "Servidor desligado".
+async function poll(force){
+  if(saving) return;
+  try{
+    const r=await fetch('/api/data',{cache:'no-store'}); const d=await r.json();
+    if(!d.blocks) throw new Error(d.error);
+    setSync(d);
+    const s=sig(d);
+    if(force || s!==lastSig){ D=d; lastSig=s; renderAll(force); }
+  }catch(e){ $('#syncPill').className='pill err'; $('#syncText').textContent='Servidor desligado — abra iniciar_painel.bat'; }
+}
+$('#refreshBtn').onclick=()=>poll(true);
+// Início: busca os dados já e depois a cada 2 segundos.
+poll(true); setInterval(poll,2000);
+</script>
+</body>
+</html>

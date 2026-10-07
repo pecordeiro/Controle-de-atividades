@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Endereço do PC que está servindo o painel (modo rede); muda em cada computador
+servidor.txt
+
+# Bloqueio temporário que o Excel cria enquanto a planilha está aberta
+~$*
+
+# Cópias de segurança locais
+backup/
+
+# Ferramentas / sistema
+.claude/
+.vscode/
+Thumbs.db
